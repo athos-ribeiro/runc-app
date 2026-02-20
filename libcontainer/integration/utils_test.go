@@ -2,7 +2,6 @@ package integration
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -231,11 +230,4 @@ func runContainerOk(t testing.TB, config *configs.Config, args ...string) *stdBu
 
 func destroyContainer(container *libcontainer.Container) {
 	_ = container.Destroy()
-}
-
-func needUserNS(t testing.TB) {
-	t.Helper()
-	if _, err := os.Stat("/proc/self/ns/user"); errors.Is(err, os.ErrNotExist) {
-		t.Skip("Test requires userns.")
-	}
 }

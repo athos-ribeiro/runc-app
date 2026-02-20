@@ -173,8 +173,6 @@ func convertLibcontainerStats(ls *libcontainer.Stats) *types.Stats {
 		if intelrdt.IsCMTEnabled() {
 			s.IntelRdt.CMTStats = is.CMTStats
 		}
-
-		s.IntelRdt.Schemata = is.Schemata
 	}
 
 	s.NetworkInterfaces = ls.Interfaces

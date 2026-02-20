@@ -87,7 +87,7 @@ TESTBINDIR := tests/cmd/_bin
 $(TESTBINDIR):
 	mkdir $(TESTBINDIR)
 
-TESTBINS := recvtty sd-helper seccompagent fs-idmap pidfd-kill remap-rootfs key_label
+TESTBINS := recvtty sd-helper seccompagent fs-idmap pidfd-kill remap-rootfs
 .PHONY: test-binaries $(TESTBINS)
 test-binaries: $(TESTBINS)
 $(TESTBINS): $(TESTBINDIR)
