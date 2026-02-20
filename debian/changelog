@@ -1,3 +1,15 @@
+runc-app (1.3.4-0ubuntu1~22.04.1) jammy; urgency=medium
+
+  * New upstream version 1.3.4 (LP: #2127661)
+  * d/copyright: update copyright data
+  * Drop patches applied upstream:
+    - d/p/v1.3-0025-openat2-improve-resilience-on-busy-systems.patch
+    - d/p/lp-2130744.patch
+  * d/control: build with golang 1.24
+  * d/rules: add golang 1.24 to PATH
+
+ -- Athos Ribeiro <athos@ubuntu.com>  Fri, 20 Feb 2026 15:12:12 -0300
+
 runc-app (1.3.3-0ubuntu1~22.04.3) jammy-security; urgency=medium
 
    * SECURITY REGRESSION: Wrong default tmpfs permission handling
