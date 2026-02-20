@@ -21,7 +21,6 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/opencontainers/runc/internal/linux"
 	"golang.org/x/sys/unix"
 )
 
@@ -50,7 +49,7 @@ func RecvFile(socket *os.File) (_ *os.File, Err error) {
 
 	for {
 		n, oobn, _, _, err = unix.Recvmsg(int(sockfd), name, oob, unix.MSG_CMSG_CLOEXEC)
-		if err != unix.EINTR {
+		if err != unix.EINTR { //nolint:errorlint // unix errors are bare
 			break
 		}
 	}
@@ -127,5 +126,10 @@ func SendFile(socket *os.File, file *os.File) error {
 // SendRawFd sends a specific file descriptor over the given AF_UNIX socket.
 func SendRawFd(socket *os.File, msg string, fd uintptr) error {
 	oob := unix.UnixRights(int(fd))
-	return linux.Sendmsg(int(socket.Fd()), []byte(msg), oob, nil, 0)
+	for {
+		err := unix.Sendmsg(int(socket.Fd()), []byte(msg), oob, nil, 0)
+		if err != unix.EINTR { //nolint:errorlint // unix errors are bare
+			return os.NewSyscallError("sendmsg", err)
+		}
+	}
 }

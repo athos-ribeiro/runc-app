@@ -5,10 +5,8 @@ package specconv
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -16,17 +14,16 @@ import (
 
 	systemdDbus "github.com/coreos/go-systemd/v22/dbus"
 	dbus "github.com/godbus/dbus/v5"
-	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
-
 	"github.com/opencontainers/cgroups"
 	devices "github.com/opencontainers/cgroups/devices/config"
-	"github.com/opencontainers/runc/internal/linux"
-	"github.com/opencontainers/runc/internal/pathrs"
 	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/opencontainers/runc/libcontainer/internal/userns"
 	"github.com/opencontainers/runc/libcontainer/seccomp"
+	libcontainerUtils "github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
+
+	"golang.org/x/sys/unix"
 )
 
 var (
@@ -42,8 +39,6 @@ var (
 		flag  int
 	}
 	complexFlags map[string]func(*configs.Mount)
-	mpolModeMap  map[string]uint
-	mpolModeFMap map[string]uint
 )
 
 func initMaps() {
@@ -151,22 +146,6 @@ func initMaps() {
 				m.IDMapping.Recursive = true
 			},
 		}
-
-		mpolModeMap = map[string]uint{
-			string(specs.MpolDefault):            configs.MPOL_DEFAULT,
-			string(specs.MpolPreferred):          configs.MPOL_PREFERRED,
-			string(specs.MpolBind):               configs.MPOL_BIND,
-			string(specs.MpolInterleave):         configs.MPOL_INTERLEAVE,
-			string(specs.MpolLocal):              configs.MPOL_LOCAL,
-			string(specs.MpolPreferredMany):      configs.MPOL_PREFERRED_MANY,
-			string(specs.MpolWeightedInterleave): configs.MPOL_WEIGHTED_INTERLEAVE,
-		}
-
-		mpolModeFMap = map[string]uint{
-			string(specs.MpolFStaticNodes):   configs.MPOL_F_STATIC_NODES,
-			string(specs.MpolFRelativeNodes): configs.MPOL_F_RELATIVE_NODES,
-			string(specs.MpolFNumaBalancing): configs.MPOL_F_NUMA_BALANCING,
-		}
 	})
 }
 
@@ -201,20 +180,6 @@ func KnownMountOptions() []string {
 	}
 	sort.Strings(res)
 	return res
-}
-
-// KnownMemoryPolicyModes returns the list of the known memory policy modes.
-// Used by `runc features`.
-func KnownMemoryPolicyModes() []string {
-	initMaps()
-	return slices.Sorted(maps.Keys(mpolModeMap))
-}
-
-// KnownMemoryPolicyFlags returns the list of the known memory policy mode flags.
-// Used by `runc features`.
-func KnownMemoryPolicyFlags() []string {
-	initMaps()
-	return slices.Sorted(maps.Keys(mpolModeFMap))
 }
 
 // AllowedDevices is the set of devices which are automatically included for
@@ -379,13 +344,24 @@ type CreateOpts struct {
 	RootlessCgroups  bool
 }
 
+// getwd is a wrapper similar to os.Getwd, except it always gets
+// the value from the kernel, which guarantees the returned value
+// to be absolute and clean.
+func getwd() (wd string, err error) {
+	for {
+		wd, err = unix.Getwd()
+		if err != unix.EINTR {
+			break
+		}
+	}
+	return wd, os.NewSyscallError("getwd", err)
+}
+
 // CreateLibcontainerConfig creates a new libcontainer configuration from a
 // given specification and a cgroup name
 func CreateLibcontainerConfig(opts *CreateOpts) (*configs.Config, error) {
-	// Runc's cwd will always be the bundle path.
-	// Use the value from the kernel, which guarantees the returned value
-	// to be absolute and clean.
-	cwd, err := linux.Getwd()
+	// runc's cwd will always be the bundle path
+	cwd, err := getwd()
 	if err != nil {
 		return nil, err
 	}
@@ -495,34 +471,10 @@ func CreateLibcontainerConfig(opts *CreateOpts) (*configs.Config, error) {
 		}
 		if spec.Linux.IntelRdt != nil {
 			config.IntelRdt = &configs.IntelRdt{
-				ClosID:           spec.Linux.IntelRdt.ClosID,
-				Schemata:         spec.Linux.IntelRdt.Schemata,
-				L3CacheSchema:    spec.Linux.IntelRdt.L3CacheSchema,
-				MemBwSchema:      spec.Linux.IntelRdt.MemBwSchema,
-				EnableMonitoring: spec.Linux.IntelRdt.EnableMonitoring,
+				ClosID:        spec.Linux.IntelRdt.ClosID,
+				L3CacheSchema: spec.Linux.IntelRdt.L3CacheSchema,
+				MemBwSchema:   spec.Linux.IntelRdt.MemBwSchema,
 			}
-		}
-		if spec.Linux.MemoryPolicy != nil {
-			var ok bool
-			var err error
-			specMp := spec.Linux.MemoryPolicy
-			confMp := &configs.LinuxMemoryPolicy{}
-			confMp.Mode, ok = mpolModeMap[string(specMp.Mode)]
-			if !ok {
-				return nil, fmt.Errorf("invalid memory policy mode %q", specMp.Mode)
-			}
-			confMp.Nodes, err = configs.ToCPUSet(specMp.Nodes)
-			if err != nil {
-				return nil, fmt.Errorf("invalid memory policy nodes %q: %w", specMp.Nodes, err)
-			}
-			for _, specFlag := range specMp.Flags {
-				confFlag, ok := mpolModeFMap[string(specFlag)]
-				if !ok {
-					return nil, fmt.Errorf("invalid memory policy flag %q", specFlag)
-				}
-				confMp.Flags |= confFlag
-			}
-			config.MemoryPolicy = confMp
 		}
 		if spec.Linux.Personality != nil {
 			if len(spec.Linux.Personality.Flags) > 0 {
@@ -537,14 +489,6 @@ func CreateLibcontainerConfig(opts *CreateOpts) (*configs.Config, error) {
 			}
 		}
 
-		for name, netdev := range spec.Linux.NetDevices {
-			if config.NetDevices == nil {
-				config.NetDevices = make(map[string]*configs.LinuxNetDevice)
-			}
-			config.NetDevices[name] = &configs.LinuxNetDevice{
-				Name: netdev.Name,
-			}
-		}
 	}
 
 	// Set the host UID that should own the container's cgroup.
@@ -691,7 +635,7 @@ func checkPropertyName(s string) error {
 	}
 	// Check ASCII characters rather than Unicode runes,
 	// so we have to use indexes rather than range.
-	for i := range len(s) {
+	for i := 0; i < len(s); i++ {
 		ch := s[i]
 		if (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') {
 			continue
@@ -802,7 +746,7 @@ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgrou
 		if useSystemdCgroup {
 			myCgroupPath = spec.Linux.CgroupsPath
 		} else {
-			myCgroupPath = pathrs.LexicallyCleanPath(spec.Linux.CgroupsPath)
+			myCgroupPath = libcontainerUtils.CleanPath(spec.Linux.CgroupsPath)
 		}
 	}
 
@@ -982,7 +926,11 @@ func CreateCgroupConfig(opts *CreateOpts, defaultDevs []*devices.Device) (*cgrou
 				}
 			}
 			if len(r.Unified) > 0 {
-				c.Resources.Unified = maps.Clone(r.Unified)
+				// copy the map
+				c.Resources.Unified = make(map[string]string, len(r.Unified))
+				for k, v := range r.Unified {
+					c.Resources.Unified[k] = v
+				}
 			}
 		}
 	}

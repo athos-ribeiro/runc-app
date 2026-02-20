@@ -13,11 +13,9 @@ import (
 	_ "unsafe" // for go:linkname
 
 	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/opencontainers/runc/internal/pathrs"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-
-	"github.com/opencontainers/runc/internal/linux"
-	"github.com/opencontainers/runc/internal/pathrs"
 )
 
 var (
@@ -114,7 +112,7 @@ func runtime_IsPollDescriptor(fd uintptr) bool //nolint:revive
 //
 // NOTE: That this function is incredibly dangerous to use in most Go code, as
 // closing file descriptors from underneath *os.File handles can lead to very
-// bad behaviour (the closed file descriptor can be reused and then any
+// bad behaviour (the closed file descriptor can be re-used and then any
 // *os.File operations would apply to the wrong file). This function is only
 // intended to be called from the last stage of runc init.
 func UnsafeCloseFrom(minFd int) error {
@@ -152,12 +150,9 @@ func NewSockPair(name string) (parent, child *os.File, err error) {
 // through the passed fdpath should be safe. Do not access this path through
 // the original path strings, and do not attempt to use the pathname outside of
 // the passed closure (the file handle will be freed once the closure returns).
-//
-// Deprecated: This function is an internal implementation detail of runc and
-// is no longer used. It will be removed in runc 1.5.
 func WithProcfd(root, unsafePath string, fn func(procfd string) error) error {
 	// Remove the root then forcefully resolve inside the root.
-	unsafePath = pathrs.LexicallyStripRoot(root, unsafePath)
+	unsafePath = StripRoot(root, unsafePath)
 	fullPath, err := securejoin.SecureJoin(root, unsafePath)
 	if err != nil {
 		return fmt.Errorf("resolving path inside rootfs failed: %w", err)
@@ -184,15 +179,10 @@ func WithProcfd(root, unsafePath string, fn func(procfd string) error) error {
 	return fn(procfd)
 }
 
-// WithProcfdFile is a very minimal wrapper around [ProcThreadSelfFd]. The
+// WithProcfdFile is a very minimal wrapper around [ProcThreadSelfFd], intended
+// to make migrating from [WithProcfd] and [WithProcfdPath] usage easier. The
 // caller is responsible for making sure that the provided file handle is
 // actually safe to operate on.
-//
-// NOTE: THIS FUNCTION IS INTERNAL TO RUNC, DO NOT USE IT.
-//
-// TODO: Migrate the mount logic towards a more move_mount(2)-friendly design
-// where this is kind of /proc/self/... tomfoolery is only done in a fallback
-// path for old kernels.
 func WithProcfdFile(file *os.File, fn func(procfd string) error) error {
 	fdpath, closer := ProcThreadSelfFd(file.Fd())
 	defer closer()
@@ -279,9 +269,9 @@ func Openat(dir *os.File, path string, flags int, mode uint32) (*os.File, error)
 	}
 	flags |= unix.O_CLOEXEC
 
-	fd, err := linux.Openat(dirFd, path, flags, mode)
+	fd, err := unix.Openat(dirFd, path, flags, mode)
 	if err != nil {
-		return nil, err
+		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
 	return os.NewFile(uintptr(fd), dir.Name()+"/"+path), nil
 }

@@ -44,7 +44,7 @@ func setupProcessPipes(p *libcontainer.Process, rootuid, rootgid int) (*tty, err
 		},
 	}
 	// add the process's io to the post start closers if they support close
-	for _, cc := range []any{
+	for _, cc := range []interface{}{
 		p.Stdin,
 		p.Stdout,
 		p.Stderr,

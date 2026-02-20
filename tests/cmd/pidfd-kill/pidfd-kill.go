@@ -99,7 +99,12 @@ func recvPidfd(socketFile string) (*os.File, error) {
 	}
 	defer conn.Close()
 
-	socket, err := conn.(*net.UnixConn).File()
+	unixconn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return nil, errors.New("failed to cast to unixconn")
+	}
+
+	socket, err := unixconn.File()
 	if err != nil {
 		return nil, err
 	}

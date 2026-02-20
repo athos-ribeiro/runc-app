@@ -226,17 +226,17 @@ function check_exec_debug() {
 	# Check we can't join parent cgroup.
 	runc exec --cgroup ".." test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"bad sub cgroup path"* ]]
+	[[ "$output" == *" .. is not a sub cgroup path"* ]]
 
 	# Check we can't join non-existing subcgroup.
 	runc exec --cgroup nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can't join non-existing subcgroup (for a particular controller).
 	runc exec --cgroup cpu:nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can't specify non-existent controller.
 	runc exec --cgroup whaaat:/ test_busybox true
@@ -277,12 +277,12 @@ function check_exec_debug() {
 	# Check we can't join parent cgroup.
 	runc exec --cgroup ".." test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"bad sub cgroup path"* ]]
+	[[ "$output" == *" .. is not a sub cgroup path"* ]]
 
 	# Check we can't join non-existing subcgroup.
 	runc exec --cgroup nonexistent test_busybox cat /proc/self/cgroup
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" cgroup"*"o such file or directory"* ]]
+	[[ "$output" == *" adding pid "*"/nonexistent/cgroup.procs: no such file "* ]]
 
 	# Check we can join top-level cgroup (implicit).
 	runc exec test_busybox grep '^0::/$' /proc/self/cgroup
@@ -318,7 +318,7 @@ function check_exec_debug() {
 	# Check that --cgroup / disables the init cgroup fallback.
 	runc exec --cgroup / test_busybox true
 	[ "$status" -ne 0 ]
-	[[ "$output" == *" adding pid "*" to cgroups"*"evice or resource busy"* ]]
+	[[ "$output" == *" adding pid "*" to cgroups"*"/cgroup.procs: device or resource busy"* ]]
 
 	# Check that explicit --cgroup foobar works.
 	runc exec --cgroup foobar test_busybox grep '^0::/foobar$' /proc/self/cgroup
